@@ -123,15 +123,95 @@ if (EXISTS ${TENSORFLOW_PATH}/include/external/nsync/public)
 	list(APPEND TENSORFLOW_INCLUDE_DIRS ${TENSORFLOW_PATH}/include/external/nsync/public)
 endif()
 
+
+
+
+
+
+
+
+
+
+# try finding protobuf with pip
+execute_process(
+		COMMAND pip2 show protobuf
+		RESULT_VARIABLE PIP_DIDNT_FIND_PROTOBUF
+		OUTPUT_VARIABLE PIP_SHOW_OUTPUT
+)
+
+# find the protobuf path using some heuristics
+set(PROTOBUF_FOUND 0)
+if(DEFINED ENV{PROTOBUF_PATH})
+	# if PROTOBUF_PATH env var is defined, give it precedence
+	if(EXISTS $ENV{PROTOBUF_PATH})
+		set(PROTOBUF_PATH "$ENV{PROTOBUF_PATH}")
+		set(PROTOBUF_FOUND 1)
+		message("Found user-specified protobuf: ${PROTOBUF_PATH}")
+	else()
+		message(WARNING "User-specified protobuf from PROTOBUF_PATH not found: $ENV{PROTOBUF_PATH}")
+	endif()
+elseif(NOT PIP_DIDNT_FIND_PROTOBUF)
+	# parse pip output in case it found protobuf
+	string(REGEX MATCH "Location: [^\r\n]*[\r\n]" PROTOBUF_LOCATION ${PIP_SHOW_OUTPUT})
+	string(REGEX REPLACE "^Location: (.*)[\r\n]$" "\\1" PROTOBUF_LOCATION2 ${PROTOBUF_LOCATION})
+	set(PROTOBUF_PATH "${PROTOBUF_LOCATION2}/google/protobuf/")
+	set(PROTOBUF_FOUND 1)
+	message("Found pip-installed protobuf: ${PROTOBUF_PATH}")
+else()
+	# try finding protobuf on the PYTHON_PACKAGE_PATH and a few other system paths
+	find_path(PROTOBUF_LOCATION google/protobuf
+			PATHS ENV PYTHON_PACKAGE_PATH /usr/local/lib/python2.7/dist-packages /usr/lib/python2.7/dist-packages $ENV{HOME}/.local/lib/python2.7/site-packages
+			NO_DEFAULT_PATH
+			)
+	if(${PROTOBUF_LOCATION} MATCHES NOTFOUND)
+		message(WARNING "Protobuf not found")
+	else()
+		set(PROTOBUF_PATH "${PROTOBUF_LOCATION}/google/protobuf/")
+		set(PROTOBUF_FOUND 1)
+		message("Found protobuf: ${PROTOBUF_PATH}")
+	endif()
+endif()
+
+if(NOT ${PROTOBUF_FOUND})
+	message(FATAL_ERROR "Protobuf could not be found. Try installing it manually using 'pip install --user protobuf', or set the PROTOBUF_PATH environment variable to point to the *dist-pacakges/google/protobuf directory.")
+endif()
+
+# we need to add the `lib` prefix to the library name so that the linker can find it!
+set(PROTOBUF_ORIG_LIBRARY ${PROTOBUF_PATH}pyext/_message${CMAKE_SHARED_LIBRARY_SUFFIX})
+
+if(EXISTS ${PROTOBUF_ORIG_LIBRARY})
+	message("Using Protobuf library ${PROTOBUF_ORIG_LIBRARY}")
+else()
+	message(FATAL_ERROR "Protobuf library _message not found in ${PROTOBUF_PATH}")
+endif()
+
+set(PROTOBUF_LIBRARY ${CATKIN_DEVEL_PREFIX}/lib/${CMAKE_SHARED_LIBRARY_PREFIX}_message${CMAKE_SHARED_LIBRARY_SUFFIX})
+if(NOT EXISTS ${PROTOBUF_LIBRARY})
+	file(MAKE_DIRECTORY ${CATKIN_DEVEL_PREFIX}/lib)
+	execute_process(
+			COMMAND ln -s ${PROTOBUF_ORIG_LIBRARY} ${PROTOBUF_LIBRARY}
+			RESULT_VARIABLE LINK_FAILED
+			OUTPUT_QUIET
+	)
+	if(NOT LINK_FAILED)
+		message("Created protobuf library link ${PROTOBUF_ORIG_LIBRARY} -> ${PROTOBUF_LIBRARY}.")
+	else()
+		message(FATAL_ERROR "Could not create symlink from ${PROTOBUF_ORIG_LIBRARY} -> ${PROTOBUF_LIBRARY}.")
+	endif()
+endif()
+
+set(PROTOBUF_LIBRARIES _message)
+set(PROTOBUF_TARGETS ${PROTOBUF_LIBRARY})
+
 catkin_package(
 	INCLUDE_DIRS ${TENSORFLOW_INCLUDE_DIRS}
-	LIBRARIES ${TENSORFLOW_LIBRARIES} python2.7  # yes, we also need to link against python...
+	LIBRARIES ${TENSORFLOW_LIBRARIES} ${PROTOBUF_LIBRARIES} python2.7  # yes, we also need to link against python...
 	CFG_EXTRAS tensorflow-extras.cmake  # to add the c++11 compiler flag
 )
 
-add_custom_target(run ALL DEPENDS ${TENSORFLOW_TARGETS})
+add_custom_target(run ALL DEPENDS ${TENSORFLOW_TARGETS} ${PROTOBUF_TARGETS})
 
 install(
-	FILES ${TENSORFLOW_TARGETS}
+	FILES ${TENSORFLOW_TARGETS} ${PROTOBUF_TARGETS}
 	DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
 )
