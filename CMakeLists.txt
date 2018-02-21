@@ -203,9 +203,16 @@ endif()
 set(PROTOBUF_LIBRARIES _message)
 set(PROTOBUF_TARGETS ${PROTOBUF_LIBRARY})
 
+find_package(PythonLibs 2.7 REQUIRED)
+if(${PYTHONLIBS_FOUND})
+	message("Found Python libraries")
+	message(${PYTHON_LIBRARIES})
+else()
+	message(FATAL_ERROR "Python libraries not found")
+endif()
+
 catkin_package(
-	INCLUDE_DIRS ${TENSORFLOW_INCLUDE_DIRS}
-	LIBRARIES ${TENSORFLOW_LIBRARIES} ${PROTOBUF_LIBRARIES} python2.7  # yes, we also need to link against python...
+	INCLUDE_DIRS ${TENSORFLOW_INCLUDE_DIRS} ${PYTHON_INCLUDE_DIRS}
 	CFG_EXTRAS tensorflow-extras.cmake  # to add the c++11 compiler flag
 )
 
